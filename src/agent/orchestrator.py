@@ -388,7 +388,11 @@ class EmporioMusicAgent:
             augmented_prompt = (
                 f"Mensagem do cliente: {user_message}\n\n"
                 f"Dados consultados no sistema da Empório da Música:\n{context_blocks}\n\n"
-                "Responda ao cliente seguindo rigorosamente a persona e os dados acima."
+                "Responda ao cliente seguindo rigorosamente a persona e os dados acima.\n"
+                "IMPORTANTE:\n"
+                "- NUNCA gere tabelas Markdown com pipes (|). Apresente instrumentos e opções sempre em lista organizada com tópicos limpos (bullet points ou numeração).\n"
+                "- Destaque o modelo em negrito, o preço de tabela e o valor com 5% de desconto no PIX.\n"
+                "- NÃO polua cada linha repetindo contagem de estoque (ex: evite 'Estoque: 15 unidades' em cada item). Confirme que estão disponíveis para pronta entrega e só mencione unidades se restarem 3 ou menos (ex: 'últimas 2 unidades!')."
             )
             messages = [{"role": m.role, "content": m.content} for m in history[-6:]]
             messages.append({"role": "user", "content": augmented_prompt})

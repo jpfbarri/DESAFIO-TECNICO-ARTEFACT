@@ -2,6 +2,7 @@
 
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ProductCardGrid, type ParsedProduct } from "./product-card-grid";
 import { OrderTrackingCard, type ParsedOrderDetails } from "./order-tracking-card";
 import { EscalationCard } from "./policy-callout-card";
@@ -35,50 +36,20 @@ export function PriceDisplay({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  const [integerPart, centsPart] = formatted.split(",");
 
   return (
     <span className={`inline-baseline font-semibold text-[#111827] ${className}`}>
-      R$ {integerPart}
-      <span className="font-normal text-[#9CA3AF]">,{centsPart}</span>
+      R$ {formatted}
     </span>
   );
 }
 
 export function renderTextWithGrayCents(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  BRL_PRICE_REGEX.lastIndex = 0;
-  while ((match = BRL_PRICE_REGEX.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const rawMain = match[1].replace(/\s+/g, " ");
-    const rawCents = match[2].replace(".", ",");
-
-    parts.push(
-      <span key={`${match.index}-${rawMain}`} className="font-semibold text-[#111827]">
-        {rawMain}
-        <span className="font-normal text-[#9CA3AF]">{rawCents}</span>
-      </span>
-    );
-    lastIndex = BRL_PRICE_REGEX.lastIndex;
-  }
-
-  if (lastIndex === 0) return text;
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
+  return text;
 }
 
 function processChildrenForCents(children: React.ReactNode): React.ReactNode {
-  return React.Children.map(children, (child) => {
-    if (typeof child === "string") {
-      return renderTextWithGrayCents(child);
-    }
-    return child;
-  });
+  return children;
 }
 
 function tryParseProductList(text: string): { products: ParsedProduct[]; cleanedText: string } {
@@ -286,11 +257,36 @@ export function FormattedMessage({
       {/* Clean Markdown Content with Gray Cents */}
       {markdownContent.trim().length > 0 && (
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
             p: ({ children }) => (
               <p className="mb-2.5 last:mb-0 leading-relaxed text-[#1F2937]">
                 {processChildrenForCents(children)}
               </p>
+            ),
+            table: ({ children }) => (
+              <div className="my-3 overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">{children}</table>
+              </div>
+            ),
+            thead: ({ children }) => (
+              <thead className="bg-slate-50 font-semibold text-slate-700 border-b border-slate-200/80">
+                {children}
+              </thead>
+            ),
+            tbody: ({ children }) => (
+              <tbody className="divide-y divide-slate-100">{children}</tbody>
+            ),
+            tr: ({ children }) => (
+              <tr className="hover:bg-amber-50/30 transition-colors">{children}</tr>
+            ),
+            th: ({ children }) => (
+              <th className="px-3 py-2 font-semibold text-slate-800">{children}</th>
+            ),
+            td: ({ children }) => (
+              <td className="px-3 py-2 text-slate-600 leading-normal">
+                {processChildrenForCents(children)}
+              </td>
             ),
             ul: ({ children }) => (
               <ul className="mb-3 space-y-1.5 pl-1">{children}</ul>

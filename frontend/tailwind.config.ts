@@ -30,7 +30,7 @@ const config: Config = {
         card: "20px",
       },
       fontFamily: {
-        sans: ["Poppins", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        sans: ["Poppins", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
         poppins: ["Poppins", "sans-serif"],
       },
     },

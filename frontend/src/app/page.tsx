@@ -16,6 +16,8 @@ import {
 import { Mascot } from "@/components/chat/mascot";
 import { ToolChip, type ToolChipData } from "@/components/chat/tool-chip";
 import { FormattedMessage } from "@/components/chat/formatted-message";
+import { motion, AnimatePresence } from "framer-motion";
+import ThoughtLine from "@/components/chat/thought-line";
 
 const LOCAL_STORAGE_THREAD_KEY = "emporio_musica_thread_id";
 
@@ -64,6 +66,112 @@ const QUICK_ACTIONS = [
 function createThreadId(): string {
   const randomSuffix = Math.random().toString(36).substring(2, 10);
   return `emp-${randomSuffix}`;
+}
+
+function useSmoothTypewriter(rawText: string, isLatestStreaming: boolean) {
+  const [displayed, setDisplayed] = useState(rawText);
+  const targetRef = useRef(rawText);
+  targetRef.current = rawText;
+
+  useEffect(() => {
+    if (!isLatestStreaming && displayed.length >= rawText.length) {
+      setDisplayed(rawText);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setDisplayed((prev) => {
+        if (prev.length >= targetRef.current.length) {
+          clearInterval(timer);
+          return targetRef.current;
+        }
+        const delta = targetRef.current.length - prev.length;
+        // Ritmo natural e fluido de digitação: 1 a 2 caracteres por tick (22ms)
+        const step = delta > 120 ? 6 : delta > 50 ? 3 : delta > 18 ? 2 : 1;
+        return targetRef.current.slice(0, prev.length + step);
+      });
+    }, 22);
+
+    return () => clearInterval(timer);
+  }, [isLatestStreaming, rawText]);
+
+  const isTyping = isLatestStreaming || displayed.length < rawText.length;
+  return { displayed: isTyping ? displayed : rawText, isTyping };
+}
+
+function getToolStepLabel(tool: string): string {
+  switch (tool) {
+    case "search_products":
+      return "Consultando instrumentos no catálogo...";
+    case "get_product_price":
+      return "Verificando preços e condições no PIX...";
+    case "get_active_promotions":
+      return "Consultando campanhas e promoções ativas...";
+    case "get_order_status":
+      return "Verificando status e rastreamento do pedido...";
+    case "search_policies":
+      return "Consultando manual de políticas e prazos...";
+    case "escalate_to_human":
+      return "Acionando protocolo de atendimento humano...";
+    default:
+      return "Processando dados do sistema...";
+  }
+}
+
+function AssistantCardContent({
+  content,
+  isLatestStreaming,
+  tools = [],
+  onSelectPrompt,
+}: {
+  content: string;
+  isLatestStreaming: boolean;
+  tools?: ToolChipData[];
+  onSelectPrompt?: (prompt: string) => void;
+}) {
+  const { displayed, isTyping } = useSmoothTypewriter(content, isLatestStreaming);
+  const isWorking = isLatestStreaming && !displayed;
+
+  const traceSteps =
+    tools && tools.length > 0
+      ? tools.map((t) => getToolStepLabel(t.tool))
+      : ["Consultando o sistema da Empório da Música..."];
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* ThoughtLine Thinking & Settle Accordion */}
+      {(isWorking || (tools && tools.length > 0)) && (
+        <div className="border-b border-slate-100/90 pb-2.5 mb-1">
+          <ThoughtLine
+            working={isWorking}
+            steps={traceSteps}
+            label="Téo está pensando…"
+            doneLabel="Pensou por"
+            glyph="sparkle"
+            color="#EA580C"
+            fontSize={13}
+            settleDuration={300}
+            collapsible
+            collapseOnSettle
+            showTimer
+          />
+        </div>
+      )}
+
+      {/* Answer content */}
+      {displayed ? (
+        <div className="relative">
+          <FormattedMessage
+            content={displayed}
+            onSelectPrompt={onSelectPrompt}
+          />
+          {isTyping && (
+            <span className="inline-block h-3.5 w-1.5 ml-1 translate-y-0.5 rounded-xs bg-amber-500/80" />
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function HomePage() {
@@ -312,7 +420,7 @@ export default function HomePage() {
             </div>
 
             {/* Headline — 1 Linha de Título e 1 Linha de Subtítulo */}
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
               Oi, eu sou o Téo! Como posso te ajudar hoje?
             </h1>
             <p className="mt-2 text-sm text-slate-500 max-w-xl">
@@ -389,8 +497,12 @@ export default function HomePage() {
           /* Active Chat Conversation Feed with Elevated Cards (Image 1) */
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-8">
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
-              {messages.map((msg, idx) => (
-                <div
+              <AnimatePresence initial={false}>
+                {messages.map((msg, idx) => (
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.32, ease: "easeOut" }}
                   key={msg.id}
                   className={`flex flex-col ${
                     msg.role === "user" ? "items-end" : "items-start"
@@ -413,7 +525,7 @@ export default function HomePage() {
                               variant={msg.content ? "happy" : "thinking"}
                               className="h-10 w-14 shrink-0 drop-shadow-md"
                             />
-                            <span className="text-base font-bold tracking-tight text-slate-900">
+                            <span className="text-base font-semibold tracking-tight text-slate-900">
                               Téo - Empório da Música
                             </span>
                           </div>
@@ -436,18 +548,13 @@ export default function HomePage() {
                           </div>
                         </div>
 
-                        {/* Content */}
-                        {msg.content ? (
-                          <FormattedMessage
-                            content={msg.content}
-                            onSelectPrompt={(p) => sendMessage(p)}
-                          />
-                        ) : (
-                          <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
-                            <span className="h-2 w-2 animate-ping rounded-full bg-amber-500" />
-                            <span>Consultando o sistema da Empório da Música...</span>
-                          </div>
-                        )}
+                        {/* Content with live typewriter animation & ThoughtLine */}
+                        <AssistantCardContent
+                          content={msg.content}
+                          isLatestStreaming={isStreaming && idx === messages.length - 1}
+                          tools={msg.tools}
+                          onSelectPrompt={(p) => sendMessage(p)}
+                        />
                       </div>
 
                       {/* Regenerate pill below the card (Image 1 Style) */}
@@ -465,8 +572,9 @@ export default function HomePage() {
                       )}
                     </div>
                   )}
-                </div>
+                </motion.div>
               ))}
+              </AnimatePresence>
 
               {/* Error Banner */}
               {errorMessage && (

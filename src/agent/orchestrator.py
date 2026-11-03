@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, Generator, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
@@ -139,7 +140,8 @@ class EmporioMusicAgent:
                 }
 
             reply_text = self._generate_final_reply(user_message, history, tool_steps)
-            for token_chunk in self._chunk_text_for_streaming(reply_text):
+            for token_chunk in self._chunk_text_for_streaming(reply_text, words_per_chunk=2):
+                time.sleep(0.035)
                 yield {"event": "token", "data": {"text": token_chunk}}
 
             self.checkpointer.save_message(
@@ -182,8 +184,26 @@ class EmporioMusicAgent:
             return [("search_policies", {"query": "escopo exclusivo instrumentos musicais acessórios"})]
 
         calls: List[Tuple[str, Dict[str, Any]]] = []
-        order_id = self._extract_order_id(user_message, history)
-        customer_id_str = self._extract_customer_identifier(user_message, history)
+
+        last_asst_text = ""
+        for m in reversed(history):
+            if m.role == "assistant":
+                last_asst_text = m.content.lower()
+                break
+
+        prev_asked_auth = any(
+            term in last_asst_text
+            for term in ("e-mail", "telefone", "nome completo", "identidade", "lgpd", "titular", "numero do pedido")
+        )
+        current_has_identifier = bool(
+            re.search(r"[\w\.\-]+@[\w\.\-]+\.\w+", user_message)
+            or re.search(r"(?:\(?\d{2}\)?\s*)?\d{4,5}[\-\s]?\d{4}", user_message)
+            or re.search(r"(?:meu nome [eé]|sou o|sou a|cliente|titular)", user_message.lower())
+        )
+
+        is_auth_followup = prev_asked_auth and current_has_identifier
+        order_id = self._extract_order_id(user_message, history, is_auth_followup=is_auth_followup)
+        customer_id_str = self._extract_customer_identifier(user_message, history, is_order_context=(order_id is not None))
 
         is_return_or_exchange = any(
             w in norm_msg
@@ -192,7 +212,7 @@ class EmporioMusicAgent:
         is_order_query = any(
             w in norm_msg
             for w in ("pedido", "rastreio", "rastreamento", "status", "entrega do meu", "comprei")
-        ) or (order_id is not None and customer_id_str != "")
+        ) or is_auth_followup
 
         if is_return_or_exchange:
             calls.append(("search_policies", {"query": user_message}))
@@ -219,7 +239,7 @@ class EmporioMusicAgent:
             campaign_q = self._extract_campaign_query(norm_msg)
             calls.append(("get_active_promotions", {"campaign_query": campaign_q}))
 
-        specific_model = self._extract_specific_model_query(user_message, norm_msg)
+        specific_model = self._extract_specific_model_query(user_message, norm_msg, history)
         if specific_model and not is_order_query:
             calls.append(("get_product_price", {"product_query": specific_model}))
         elif self._is_catalog_search(norm_msg):
@@ -268,26 +288,62 @@ class EmporioMusicAgent:
             for w in ("instrumentos", "catalogo", "opcoes", "disponiveis", "ate r", "barato", "iniciante")
         )
 
-    def _extract_specific_model_query(self, raw_msg: str, norm_msg: str) -> Optional[str]:
+    def _extract_specific_model_query(
+        self, raw_msg: str, norm_msg: str, history: Optional[List[ChatMessageRecord]] = None
+    ) -> Optional[str]:
         tokens = norm_msg.split()
         matched_brands = [b for b in KNOWN_BRANDS_AND_MODELS if b in tokens or b in norm_msg]
-        if not matched_brands:
-            return None
-        # Se o usuário pede "opções de violões até R$1000" sem citar marca/modelo, é busca de catálogo
-        model_pattern = re.search(
-            r"((?:takamine|yamaha|tagima|giannini|rozini|shelby|crafter|martin|taylor|kalani|ohana|kala|ibanez|fender|gibson|roland|casio)\s*[a-z0-9\-]*)",
-            norm_msg,
+        if matched_brands:
+            model_pattern = re.search(
+                r"((?:takamine|yamaha|tagima|giannini|rozini|shelby|crafter|martin|taylor|kalani|ohana|kala|ibanez|fender|gibson|roland|casio)\s*[a-z0-9\-]*)",
+                norm_msg,
+            )
+            if model_pattern:
+                extracted = model_pattern.group(1).strip()
+                if len(extracted.split()) >= 2 or any(ch.isdigit() for ch in extracted):
+                    return extracted
+            for token in raw_msg.split():
+                clean_tok = re.sub(r"[^\w\-]", "", token)
+                if any(ch.isdigit() for ch in clean_tok) and any(ch.isalpha() for ch in clean_tok):
+                    if not clean_tok.lower().startswith("r$"):
+                        return clean_tok
+            if "quanto custa" in norm_msg or "preco" in norm_msg or "valor" in norm_msg:
+                return matched_brands[0]
+
+        # Resolução de anáfora / pronomes / referências: "dela", "dele", "desse", "do primeiro", "da primeira"
+        is_followup = any(
+            w in norm_msg
+            for w in (
+                "dela", "dele", "desse", "deste", "desse modelo", "dessa bateria", "desse violao",
+                "primeiro", "primeira", "segundo", "segunda", "terceiro", "terceira",
+                "quanto fica", "qual o valor", "preco a vista",
+            )
         )
-        if model_pattern:
-            extracted = model_pattern.group(1).strip()
-            if len(extracted.split()) >= 2 or any(ch.isdigit() for ch in extracted):
-                return extracted
-        for token in raw_msg.split():
-            clean_tok = re.sub(r"[^\w\-]", "", token)
-            if any(ch.isdigit() for ch in clean_tok) and any(ch.isalpha() for ch in clean_tok):
-                if not clean_tok.lower().startswith("r$"):
-                    return clean_tok
-        return matched_brands[0] if "quanto custa" in norm_msg or "preco" in norm_msg else None
+        if is_followup and history:
+            for past in reversed(history):
+                if past.role == "assistant":
+                    found_instruments = re.findall(
+                        r"(?:•|\*|-|\d+\.)\s*(?:\*\*)?([A-Za-zÀ-ÖØ-öø-ÿ0-9\s\-–]+?)(?:\*\*|\s*[-–—]|\s*\||\s*R\$|\s*:)",
+                        past.content,
+                    )
+                    clean_candidates = [
+                        c.strip()
+                        for c in found_instruments
+                        if len(c.strip()) > 4
+                        and not any(
+                            k in c.lower()
+                            for k in ("preco", "valor", "estoque", "avista", "pix", "atendimento", "protocolo", "detalhes")
+                        )
+                    ]
+                    if clean_candidates:
+                        if any(w in norm_msg for w in ("segundo", "segunda")) and len(clean_candidates) >= 2:
+                            return clean_candidates[1]
+                        if any(w in norm_msg for w in ("terceiro", "terceira")) and len(clean_candidates) >= 3:
+                            return clean_candidates[2]
+                        return clean_candidates[0]
+                    break
+
+        return None
 
     def _build_search_products_args(self, norm_msg: str) -> Dict[str, Any]:
         category = None
@@ -324,29 +380,40 @@ class EmporioMusicAgent:
         return None
 
     def _extract_order_id(
-        self, user_message: str, history: List[ChatMessageRecord]
+        self, user_message: str, history: List[ChatMessageRecord], is_auth_followup: bool = False
     ) -> Optional[int]:
         patterns = [
             r"pedido\s*(?:n[ºo°]?|#|:)?\s*(\d{1,3})\b",
             r"#(\d{1,3})\b",
             r"\border\s*(\d{1,3})\b",
         ]
+        # 1. Procura na mensagem atual
         for pat in patterns:
             match = re.search(pat, user_message.lower())
             if match:
                 return int(match.group(1))
-        for past in reversed(history):
-            for pat in patterns:
-                match = re.search(pat, past.content.lower())
-                if match:
-                    return int(match.group(1))
+
+        # 2. Só puxa do histórico se for resposta direta a pedido de identificação
+        # ou se a mensagem atual contiver intenção explícita de pedido/devolução
+        norm = normalize_text(user_message)
+        is_order_intent = any(
+            w in norm
+            for w in ("pedido", "rastreio", "rastreamento", "status", "entrega", "devolver", "devolucao", "trocar", "troca", "comprei")
+        )
+
+        if is_order_intent or is_auth_followup:
+            for past in reversed(history[-4:]):
+                for pat in patterns:
+                    match = re.search(pat, past.content.lower())
+                    if match:
+                        return int(match.group(1))
         return None
 
     def _extract_customer_identifier(
-        self, user_message: str, history: List[ChatMessageRecord]
+        self, user_message: str, history: List[ChatMessageRecord], is_order_context: bool = False
     ) -> str:
-        combined_texts = [user_message] + [m.content for m in reversed(history) if m.role == "user"]
-        for text in combined_texts:
+        # 1. Checa mensagem atual primeiro
+        for text in [user_message]:
             email_match = re.search(r"[\w\.\-]+@[\w\.\-]+\.\w+", text)
             if email_match:
                 return email_match.group(0)
@@ -360,6 +427,24 @@ class EmporioMusicAgent:
             )
             if name_match:
                 return name_match.group(1).strip()
+
+        # 2. Só busca no histórico se for comprovadamente contexto de pedido/devolução ativo
+        if is_order_context:
+            for past in reversed(history[-4:]):
+                if past.role == "user":
+                    email_match = re.search(r"[\w\.\-]+@[\w\.\-]+\.\w+", past.content)
+                    if email_match:
+                        return email_match.group(0)
+                    phone_match = re.search(r"(?:\(?\d{2}\)?\s*)?\d{4,5}[\-\s]?\d{4}", past.content)
+                    if phone_match:
+                        return phone_match.group(0)
+                    name_match = re.search(
+                        r"(?:meu nome [eé]|sou o|sou a|cliente|titular)\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇa-záéíóúâêôãõç]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇa-záéíóúâêôãõç]+)+)",
+                        past.content,
+                        re.IGNORECASE,
+                    )
+                    if name_match:
+                        return name_match.group(1).strip()
         return ""
 
     def _generate_final_reply(

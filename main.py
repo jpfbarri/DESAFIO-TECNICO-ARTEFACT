@@ -8,7 +8,7 @@ from src.agent.orchestrator import EmporioMusicAgent
 from src.database.connection import get_db_path
 from src.etl.clean_and_load import run_etl
 
-DEFAULT_API_HOST = "0.0.0.0"
+DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8000
 
 

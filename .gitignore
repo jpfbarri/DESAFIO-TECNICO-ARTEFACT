@@ -48,3 +48,8 @@ out/
 .coverage
 htmlcov/
 
+
+# Local tools
+.claude/
+.aider-desk/
+skills-lock.json

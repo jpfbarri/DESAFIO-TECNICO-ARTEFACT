@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from src.agent.llm_client import (
     call_gemini_rest_api,
+    call_openai_compatible_api,
     get_configured_provider_and_model,
     has_active_api_key,
 )
@@ -243,7 +244,9 @@ class EmporioMusicAgent:
             w in norm_msg
             for w in (
                 "reclamacao", "reclamar", "atendente humano", "falar com humano",
-                "falar com atendente", "gerente", "gerencia", "procon", "avaria no transporte",
+                "falar com um humano", "falar com atendente", "gerente", "gerencia",
+                "procon", "avaria no transporte", "avaria", "avariado", "rachado",
+                "quebrado", "destruida", "danificado", "humano agora",
             )
         )
 
@@ -379,9 +382,6 @@ class EmporioMusicAgent:
     ) -> Optional[str]:
         try:
             provider, model = get_configured_provider_and_model()
-            if provider != "google":
-                return None
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
             context_blocks = "\n\n".join(
                 f"[Resultado da Tool `{step.tool_name}`]:\n{step.output}" for step in tool_steps
             )
@@ -392,13 +392,23 @@ class EmporioMusicAgent:
             )
             messages = [{"role": m.role, "content": m.content} for m in history[-6:]]
             messages.append({"role": "user", "content": augmented_prompt})
-            resp = call_gemini_rest_api(messages=messages, model=model, api_key=api_key, enable_tools=False)
-            candidates = resp.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text = "".join(p.get("text", "") for p in parts).strip()
-                if text:
-                    return text
+
+            if provider == "google":
+                api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
+                resp = call_gemini_rest_api(messages=messages, model=model, api_key=api_key, enable_tools=False)
+                candidates = resp.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = "".join(p.get("text", "") for p in parts).strip()
+                    if text:
+                        return text
+            else:
+                resp = call_openai_compatible_api(messages=messages, model=model)
+                choices = resp.get("choices", [])
+                if choices:
+                    text = choices[0].get("message", {}).get("content", "").strip()
+                    if text:
+                        return text
         except Exception as err:
             logger.warning("Fallback para sintetizador determinístico após erro na API LLM: %s", err)
         return None
@@ -410,7 +420,7 @@ class EmporioMusicAgent:
         if not tool_steps:
             if self._is_general_out_of_scope(norm_msg):
                 return (
-                    "Olá! Aqui é da **Empório da Música** 🎸. Adoraria bater um papo, mas meu foco "
+                    "Olá! Aqui é da **Empório da Música**. Adoraria bater um papo, mas meu foco "
                     "é exclusivamente ajudar você com **instrumentos musicais**, preços, estoque, "
                     "pedidos e políticas da nossa loja em Campo Grande/MS.\n\n"
                     "Se estiver procurando um violão, guitarra, teclado, bateria ou quiser consultar "
@@ -424,7 +434,7 @@ class EmporioMusicAgent:
                     "2. O **e-mail**, **telefone** ou **nome completo** cadastrado na compra."
                 )
             return (
-                "Olá! Bem-vindo(a) à **Empório da Música** — *Sua música começa aqui!* 🎶\n\n"
+                "Olá! Bem-vindo(a) à **Empório da Música** — *Sua música começa aqui!*\n\n"
                 "Como posso te ajudar hoje? Posso consultar nosso catálogo de instrumentos "
                 "(violões, guitarras, baixos, baterias, teclados, sopro e ukuleles), verificar "
                 "preços e descontos no PIX, acompanhar seu pedido ou tirar dúvidas sobre frete, "
@@ -452,7 +462,7 @@ class EmporioMusicAgent:
             w in norm_msg for w in ("arrependi", "devolver", "devolucao")
         ) and not any(s.tool_name == "get_order_status" for s in tool_steps):
             sections.append(
-                "💡 **Como proceder com a sua devolução:**\n"
+                "**Como proceder com a sua devolução:**\n"
                 "- Para **compras online (Direito de Arrependimento - CDC)**, você pode devolver em até **7 (sete) dias corridos após o recebimento**, sem precisar de justificativa, desde que o instrumento esteja na embalagem original, sem sinais de uso e com os manuais.\n"
                 "- O **frete de devolução é por conta da loja** e o reembolso ocorre em até **10 dias úteis** na mesma forma de pagamento.\n"
                 "- Se quiser que eu verifique a elegibilidade do seu pedido agora mesmo, me informe o **número do pedido** e o seu **e-mail cadastrado**!"

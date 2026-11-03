@@ -1,0 +1,22 @@
+# Dependências principais — Empório da Música AI Support Agent
+fastapi>=0.115.0
+uvicorn>=0.32.0
+pydantic>=2.10.0
+pandas>=2.2.0
+numpy>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.32.0
+langgraph>=0.2.50
+langchain-google-genai>=2.0.5
+langchain-mcp-adapters>=0.1.0
+fastmcp>=0.4.0
+fastembed>=0.4.0
+faiss-cpu>=1.9.0
+pypdf>=5.1.0
+pyyaml>=6.0.0
+
+# Dependências de desenvolvimento e testes
+pytest>=8.3.0
+httpx>=0.28.0
+ipykernel>=6.29.0
+

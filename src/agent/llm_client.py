@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import requests
@@ -14,46 +15,57 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_PROVIDER = "google"
-DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
+DEFAULT_LLM_PROVIDER = "groq"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GOOGLE_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OLLAMA_MODEL = "llama3.2"
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-haiku-latest"
 
-MAX_RETRIES_ON_429 = 4
-INITIAL_BACKOFF_SECONDS = 1.5
+MAX_RETRIES_ON_ERROR = 3
+INITIAL_BACKOFF_SECONDS = 1.0
 BACKOFF_MULTIPLIER = 2.0
 JITTER_MAX_SECONDS = 0.5
-REQUEST_TIMEOUT_SECONDS = 25
+REQUEST_TIMEOUT_SECONDS = 15
 
 
 class RateLimitExceededError(Exception):
-    """Exceção lançada quando a API retorna HTTP 429 (Rate Limit)."""
+    """Exceção lançada quando a API retorna HTTP 429 ou 503 temporário."""
 
 
 def execute_with_exponential_backoff(
     operation: Callable[[], Any],
-    max_retries: int = MAX_RETRIES_ON_429,
+    max_retries: int = MAX_RETRIES_ON_ERROR,
     initial_delay: float = INITIAL_BACKOFF_SECONDS,
 ) -> Any:
-    """Executa chamada ao LLM com retry e backoff exponencial para erros 429 do free tier."""
+    """Executa chamada ao LLM com retry e backoff exponencial."""
     delay = initial_delay
     for attempt in range(max_retries + 1):
         try:
             return operation()
         except Exception as err:
             err_msg = str(err).lower()
-            is_rate_limit = (
+            is_transient_error = (
                 isinstance(err, RateLimitExceededError)
                 or "429" in err_msg
+                or "503" in err_msg
                 or "rate limit" in err_msg
                 or "quota" in err_msg
                 or "resource_exhausted" in err_msg
+                or "high demand" in err_msg
+                or "unavailable" in err_msg
+                or "timeout" in err_msg
             )
-            if not is_rate_limit or attempt == max_retries:
+            if not is_transient_error or attempt == max_retries:
                 raise
-            sleep_time = delay + random.uniform(0.0, JITTER_MAX_SECONDS)
+            retry_after_match = re.search(r"try again in (\d+(?:\.\d+)?)s", str(err))
+            if retry_after_match:
+                sleep_time = float(retry_after_match.group(1)) + 0.5
+            else:
+                sleep_time = delay + random.uniform(0.0, JITTER_MAX_SECONDS)
             logger.warning(
-                "HTTP 429 detectado (tentativa %d/%d). Aguardando %.2fs antes do retry...",
+                "Instabilidade transiente na API LLM (%s) - tentativa %d/%d. Aguardando %.2fs...",
+                type(err).__name__,
                 attempt + 1,
                 max_retries,
                 sleep_time,
@@ -66,8 +78,12 @@ def get_configured_provider_and_model() -> Tuple[str, str]:
     provider = os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).strip().lower()
     model = os.getenv("LLM_MODEL", "").strip()
     if not model:
-        if provider == "openai":
+        if provider == "groq":
+            model = DEFAULT_GROQ_MODEL
+        elif provider in ("openai", "openrouter"):
             model = DEFAULT_OPENAI_MODEL
+        elif provider in ("ollama", "local"):
+            model = DEFAULT_OLLAMA_MODEL
         elif provider == "anthropic":
             model = DEFAULT_ANTHROPIC_MODEL
         else:
@@ -77,15 +93,75 @@ def get_configured_provider_and_model() -> Tuple[str, str]:
 
 def has_active_api_key() -> bool:
     provider, _ = get_configured_provider_and_model()
-    if provider == "google":
+    if provider in ("ollama", "local"):
+        return True
+    if provider == "groq":
+        key = os.getenv("GROQ_API_KEY")
+    elif provider == "google":
         key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     elif provider == "openai":
         key = os.getenv("OPENAI_API_KEY")
+    elif provider == "openrouter":
+        key = os.getenv("OPENROUTER_API_KEY")
     elif provider == "anthropic":
         key = os.getenv("ANTHROPIC_API_KEY")
     else:
         key = None
     return bool(key and key.strip() and not key.strip().startswith("your_"))
+
+
+def call_openai_compatible_api(
+    messages: List[Dict[str, Any]],
+    model: str,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Suporta Ollama, LM Studio, Groq, OpenRouter ou OpenAI nativo."""
+    target_base = base_url or os.getenv("LLM_BASE_URL")
+    provider, _ = get_configured_provider_and_model()
+
+    if not target_base:
+        if provider == "ollama":
+            target_base = "http://localhost:11434/v1"
+        elif provider == "local":
+            target_base = "http://localhost:1234/v1"
+        elif provider == "groq":
+            target_base = "https://api.groq.com/openai/v1"
+        elif provider == "openrouter":
+            target_base = "https://openrouter.ai/api/v1"
+        else:
+            target_base = "https://api.openai.com/v1"
+
+    url = f"{target_base.rstrip('/')}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if provider == "groq":
+        actual_key = os.getenv("GROQ_API_KEY") or api_key
+    elif provider == "openrouter":
+        actual_key = os.getenv("OPENROUTER_API_KEY") or api_key
+    elif provider in ("ollama", "local"):
+        actual_key = "dummy-local-key"
+    else:
+        actual_key = api_key or os.getenv("OPENAI_API_KEY") or "dummy-key"
+    headers["Authorization"] = f"Bearer {actual_key}"
+
+    formatted_messages = [{"role": "system", "content": EMPORIO_SYSTEM_PROMPT}]
+    for m in messages:
+        formatted_messages.append({"role": m["role"], "content": str(m["content"])})
+
+    payload = {
+        "model": model,
+        "messages": formatted_messages,
+        "temperature": 0.2,
+    }
+
+    def _do_post() -> Dict[str, Any]:
+        resp = requests.post(url, json=payload, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        if resp.status_code in (429, 503):
+            raise RateLimitExceededError(f"HTTP {resp.status_code}: {resp.text}")
+        resp.raise_for_status()
+        return resp.json()
+
+    return execute_with_exponential_backoff(_do_post)
 
 
 def call_gemini_rest_api(
@@ -106,8 +182,8 @@ def call_gemini_rest_api(
 
     def _do_post() -> Dict[str, Any]:
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
-        if resp.status_code == 429:
-            raise RateLimitExceededError(f"Gemini 429 Rate Limit: {resp.text}")
+        if resp.status_code in (429, 503):
+            raise RateLimitExceededError(f"Gemini {resp.status_code} Transient: {resp.text}")
         resp.raise_for_status()
         return resp.json()
 

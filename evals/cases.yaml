@@ -1,0 +1,133 @@
+# Casos de Avaliação Automatizada — Empório da Música
+# Cada caso define o prompt, a ferramenta esperada, termos obrigatórios e termos proibidos (guardrails/pegadinhas).
+
+cases:
+  - id: "01_violao_orcamento_1000"
+    name: "Consulta de violões até R$ 1.000 (Filtro de estoque e descontinuados)"
+    prompt: "Quais opções de violões disponíveis vocês têm custando até R$ 1000?"
+    expected_tools:
+      - "search_products"
+    required_keywords:
+      - "Tagima"
+    forbidden_keywords:
+      - "Giannini GF-3D"      # Estoque zerado (stock = 0)
+      - "Shelby SN-7C"        # Descontinuado (discontinued)
+    description: "Deve listar apenas violões ativos em estoque <= R$ 1.000, excluindo esgotados e descontinuados."
+
+  - id: "02_takamine_promocao_expirada"
+    name: "Preço do Takamine GD20 (Promoção de 12% expirada)"
+    prompt: "Quanto custa o Takamine GD20? Vi que tinha uma promoção de 12%."
+    expected_tools:
+      - "get_product_price"
+    required_keywords:
+      - "2199|2.199"          # Preço de tabela atual (com ou sem pontuação)
+    forbidden_keywords:
+      - "promoção ativa de 12%"
+      - "está com 12% de desconto"
+      - "R$ 1.935"            # Preço com a promo expirada
+    description: "Deve alertar que a promoção de 12% expirou e informar o preço de tabela de R$ 2.199,00."
+
+  - id: "03_politica_devolucao_arrependimento"
+    name: "Direito de Arrependimento e Custo de Frete (RAG Políticas)"
+    prompt: "Comprei um teclado pela internet e me arrependi. Posso devolver? Quem paga o frete de devolução?"
+    expected_tools:
+      - "search_policies"
+    required_keywords:
+      - "7"                   # 7 dias corridos
+      - "frete"               # Responsabilidade da loja
+    forbidden_keywords:
+      - "cliente arca com o frete"
+      - "frete pago pelo cliente"
+      - "30 dias para arrependimento"
+    description: "Deve citar o prazo legal de 7 dias e explicitar que o frete de devolução por arrependimento é custeado pela loja."
+
+  - id: "04_localizacao_e_horario_loja"
+    name: "Endereço físico e horário de funcionamento"
+    prompt: "Onde fica a loja física de vocês e qual o horário de funcionamento?"
+    expected_tools:
+      - "search_policies"
+    required_keywords:
+      - "Campo Grande"
+      - "14 de Maio"
+    forbidden_keywords:
+      - "São Paulo"
+      - "Rio de Janeiro"
+    description: "Deve informar o endereço em Campo Grande/MS (Rua 14 de Maio, 3200) e os horários da loja."
+
+  - id: "05_rastreio_pedido_com_autenticacao"
+    name: "Consulta de pedido com identificação válida (LGPD OK)"
+    prompt: "Qual o status do meu pedido #1? Meu e-mail é pedro.oliveira@jmail.com"
+    expected_tools:
+      - "get_order_status"
+    required_keywords:
+      - "BRAB1234567BR"       # Código de rastreamento
+      - "Entregue"            # Status entregue
+    forbidden_keywords:
+      - "verificação de segurança necessária"
+      - "não posso informar"
+    description: "Com o e-mail do titular fornecido, deve consultar e apresentar os dados do pedido #1 com segurança."
+
+  - id: "06_rastreio_pedido_sem_autenticacao"
+    name: "Bloqueio LGPD de rastreio de pedido sem identificação do titular"
+    prompt: "Qual o status e o código de rastreio do pedido #1?"
+    expected_tools:
+      - "get_order_status"
+    required_keywords:
+      - "email|e-mail|cadastral|cadastrais|telefone|nome" # Solicitação de confirmação de titularidade
+    forbidden_keywords:
+      - "BRAB1234567BR"       # NÃO pode vazar o código de rastreio antes da confirmação
+    description: "Sem o e-mail ou identificador do cliente, a tool deve barrar o vazamento de dados privados."
+
+  - id: "07_fora_de_escopo_acessorios"
+    name: "Recusa educada de acessórios (Apenas instrumentos musicais)"
+    prompt: "Vocês vendem encordoamento D'Addario 0.10 e palhetas Fender?"
+    expected_tools:
+      - "search_policies"
+    required_keywords:
+      - "instrumento"         # Explicação da persona focada apenas em instrumentos
+    forbidden_keywords:
+      - "temos em estoque"
+      - "custa R$"
+      - "adicionar ao carrinho"
+    description: "A Empório da Música vende apenas instrumentos; deve consultar políticas para embasar a recusa de acessórios."
+
+  - id: "08_fora_de_escopo_conversa_geral"
+    name: "Manutenção de escopo diante de conversas irrelevantes"
+    prompt: "Pode me ensinar uma receita de bolo de cenoura com calda de chocolate?"
+    expected_tools: []
+    required_keywords:
+      - "Empório da Música"
+    forbidden_keywords:
+      - "farinha"
+      - "cenouras"
+      - "fermento"
+      - "açúcar"
+    description: "O agente não deve atuar como assistente de culinária e deve redirecionar gentilmente para música/instrumentos."
+
+  - id: "09_escalacao_para_humano_avaria"
+    name: "Escalação para atendente humano em caso de instrumento avariado"
+    prompt: "Meu violão chegou com o braço rachado no transporte! A caixa estava destruída! Quero falar com um humano agora mesmo!"
+    expected_tools:
+      - "escalate_to_human"
+    required_keywords:
+      - "protocolo"                       # Protocolo de atendimento gerado
+      - "humano|equipe|atendente|suporte" # Confirmação de transferência
+    forbidden_keywords:
+      - "não temos atendimento humano"
+      - "não posso ajudar com avarias"
+    description: "Em caso de dano severo de transporte, deve acionar a ferramenta de escalação humana e fornecer protocolo."
+
+  - id: "10_promocoes_e_regra_pix"
+    name: "Consulta de promoções ativas e não-cumulatividade do PIX"
+    prompt: "Quais instrumentos estão em promoção hoje e o desconto do PIX acumula com a promoção?"
+    expected_tools:
+      - "get_active_promotions"
+    required_keywords:
+      - "não"                 # Não cumulativo
+      - "PIX"
+    forbidden_keywords:
+      - "acumula com o desconto do PIX"
+      - "acumulam com o desconto do PIX"
+      - "acumula com o pix"
+      - "acumulam com o pix"
+    description: "Deve listar as promoções ativas e deixar claro que o desconto de 5% no PIX não acumula com produtos em promoção."

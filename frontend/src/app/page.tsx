@@ -18,8 +18,10 @@ import { ToolChip, type ToolChipData } from "@/components/chat/tool-chip";
 import { FormattedMessage } from "@/components/chat/formatted-message";
 import { motion, AnimatePresence } from "framer-motion";
 import ThoughtLine from "@/components/chat/thought-line";
+import OnboardingSplash from "@/components/chat/onboarding-splash";
 
 const LOCAL_STORAGE_THREAD_KEY = "emporio_musica_thread_id";
+const LOCAL_STORAGE_ONBOARDING_KEY = "emporio_musica_onboarding_completed";
 
 interface ChatMessageItem {
   id: string;
@@ -184,10 +186,16 @@ export default function HomePage() {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   const [toolsDropdownOpen, setToolsDropdownOpen] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const onboardingDone = window.localStorage.getItem(LOCAL_STORAGE_ONBOARDING_KEY);
+    if (!onboardingDone) {
+      setShowOnboarding(true);
+    }
+
     const stored = window.localStorage.getItem(LOCAL_STORAGE_THREAD_KEY);
     const activeId = stored || createThreadId();
     if (!stored) {
@@ -411,9 +419,17 @@ export default function HomePage() {
 
       {/* 2. Main Canvas Area */}
       <main className="relative z-10 flex flex-1 flex-col justify-between overflow-hidden">
-        {messages.length === 0 ? (
-          /* Empty State */
-          <div className="my-auto flex flex-col items-center justify-center px-4 py-6 text-center max-w-3xl mx-auto w-full">
+        <AnimatePresence mode="wait">
+          {messages.length === 0 ? (
+            /* Empty State */
+            <motion.div
+              key="empty-state"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
+              className="my-auto flex flex-col items-center justify-center px-4 py-6 text-center max-w-3xl mx-auto w-full"
+            >
             {/* Center Mascot */}
             <div className="mb-5 flex items-center justify-center">
               <Mascot size="lg" variant="music" className="w-36 h-28" />
@@ -467,11 +483,14 @@ export default function HomePage() {
               <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
                 {QUICK_ACTIONS.map((action) => {
                   return (
-                    <button
+                    <motion.button
                       key={action.title}
                       type="button"
+                      whileHover={{ y: -3, scale: 1.015 }}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25 }}
                       onClick={() => sendMessage(action.prompt)}
-                      className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white/80 hover:bg-white p-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-all hover:-translate-y-0.5 hover:border-amber-400/50 hover:shadow-[0_8px_20px_rgba(249,115,22,0.06)] active:scale-98 group"
+                      className="flex flex-col items-start rounded-2xl border border-slate-200/80 bg-white/80 hover:bg-white p-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-colors hover:border-amber-400/50 hover:shadow-[0_8px_20px_rgba(249,115,22,0.06)] group"
                     >
                       <div className="flex h-12 w-12 items-center justify-center transition-transform duration-200 group-hover:scale-110 mb-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -487,15 +506,22 @@ export default function HomePage() {
                       <span className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
                         {action.subtitle}
                       </span>
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>
             </div>
-          </div>
+          </motion.div>
         ) : (
           /* Active Chat Conversation Feed with Elevated Cards (Image 1) */
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-8">
+          <motion.div
+            key="active-chat"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="flex flex-1 flex-col overflow-hidden"
+          >
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-16 sm:pt-20 pb-8">
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
               <AnimatePresence initial={false}>
                 {messages.map((msg, idx) => (
@@ -523,7 +549,7 @@ export default function HomePage() {
                             <Mascot
                               size="md"
                               variant={msg.content ? "happy" : "thinking"}
-                              className="h-10 w-14 shrink-0 drop-shadow-md"
+                              className="h-10 w-14 shrink-0"
                             />
                             <span className="text-base font-semibold tracking-tight text-slate-900">
                               Téo - Empório da Música
@@ -602,11 +628,20 @@ export default function HomePage() {
               <div ref={messagesEndRef} />
             </div>
           </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         {/* 3. Bottom Composer when conversation is active */}
-        {messages.length > 0 && (
-          <footer className="shrink-0 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/95 to-transparent px-4 pb-5 pt-3">
+        <AnimatePresence>
+          {messages.length > 0 && (
+            <motion.footer
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.32, ease: [0.23, 1, 0.32, 1] }}
+              className="shrink-0 bg-gradient-to-t from-[#F8FAFC] via-[#F8FAFC]/95 to-transparent px-4 pb-5 pt-3"
+            >
             <div className="mx-auto max-w-3xl">
               <div className="rounded-[24px] p-[1.5px] bg-gradient-to-r from-[#FDBA74] via-[#FB923C] to-[#EA580C] shadow-[0_6px_22px_rgba(234,88,12,0.08)] transition-all focus-within:shadow-[0_8px_28px_rgba(234,88,12,0.14)] focus-within:from-[#FB923C] focus-within:via-[#EA580C] focus-within:to-[#C2410C]">
                 <form
@@ -645,8 +680,9 @@ export default function HomePage() {
                 Empório da Música • Atendimento Oficial • Campo Grande/MS
               </p>
             </div>
-          </footer>
+          </motion.footer>
         )}
+        </AnimatePresence>
 
         {/* 4. Slide-over Drawer for Store Details & Promos (triggered by (i) icon) */}
         {drawerOpen && (
@@ -656,7 +692,7 @@ export default function HomePage() {
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                   <div className="flex items-center gap-2.5">
-                    <Mascot size="sm" variant="music" className="h-7 w-7 drop-shadow-sm" />
+                    <Mascot size="sm" variant="music" className="h-7 w-7" />
                     <div>
                       <h2 className="text-sm font-semibold text-slate-900">
                         Empório da Música
@@ -762,6 +798,18 @@ export default function HomePage() {
           </div>
         )}
       </main>
+
+      {/* Onboarding Splash Carousel */}
+      <AnimatePresence>
+        {showOnboarding && (
+          <OnboardingSplash
+            onComplete={() => {
+              window.localStorage.setItem(LOCAL_STORAGE_ONBOARDING_KEY, "true");
+              setShowOnboarding(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -44,6 +44,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const threadId = searchParams.get("thread_id") || "default-session";
+    const upstream = await fetch(
+      `${FASTAPI_BASE_URL}/api/threads/${encodeURIComponent(threadId)}/history`
+    );
+    if (!upstream.ok) {
+      return NextResponse.json({ thread_id: threadId, messages: [] });
+    }
+    const result = await upstream.json();
+    return NextResponse.json(result);
+  } catch {
+    return NextResponse.json({ thread_id: "default-session", messages: [] });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

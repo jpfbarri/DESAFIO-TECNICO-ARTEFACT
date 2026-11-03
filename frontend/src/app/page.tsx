@@ -81,12 +81,33 @@ export default function HomePage() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(LOCAL_STORAGE_THREAD_KEY);
+    const activeId = stored || createThreadId();
+    if (!stored) {
+      window.localStorage.setItem(LOCAL_STORAGE_THREAD_KEY, activeId);
+    }
+    setThreadId(activeId);
+
     if (stored) {
-      setThreadId(stored);
-    } else {
-      const freshId = createThreadId();
-      window.localStorage.setItem(LOCAL_STORAGE_THREAD_KEY, freshId);
-      setThreadId(freshId);
+      fetch("/api/chat?thread_id=" + encodeURIComponent(stored))
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            const mapped: ChatMessageItem[] = data.messages
+              .filter((m: any) => m.role === "user" || m.role === "assistant")
+              .map((m: any, idx: number) => ({
+                id: "hist-" + idx + "-" + (m.created_at || idx),
+                role: m.role as "user" | "assistant",
+                content: m.content || "",
+                tools: (m.tool_calls || []).map((tc: any) => ({
+                  name: tc.tool || tc.name || "Tool",
+                  args: tc.args || {},
+                  success: true,
+                })),
+              }));
+            setMessages(mapped);
+          }
+        })
+        .catch(() => {});
     }
 
     fetch("/api/highlights")

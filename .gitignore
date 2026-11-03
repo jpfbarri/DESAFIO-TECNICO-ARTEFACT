@@ -30,9 +30,11 @@ ENV/
 .env
 .env.local
 
-# IDE
+# IDE & Local Agent Context
 .vscode/
 .idea/
+.agents/
+.mcp.json
 *.swp
 *.swo
 

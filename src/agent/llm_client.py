@@ -158,7 +158,8 @@ def call_openai_compatible_api(
         resp = requests.post(url, json=payload, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         if resp.status_code in (429, 503):
             raise RateLimitExceededError(f"HTTP {resp.status_code}: {resp.text}")
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"HTTP {resp.status_code} na API LLM ({model}): {resp.text}")
         return resp.json()
 
     return execute_with_exponential_backoff(_do_post)

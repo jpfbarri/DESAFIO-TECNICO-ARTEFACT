@@ -68,7 +68,7 @@ def main() -> None:
         return
 
     ensure_database_ready()
-    uvicorn.run("src.api.app:app", host=DEFAULT_API_HOST, port=args.port, reload=False)
+    uvicorn.run("src.api.app:app", host=DEFAULT_API_HOST, port=args.port, reload=True)
 
 
 if __name__ == "__main__":

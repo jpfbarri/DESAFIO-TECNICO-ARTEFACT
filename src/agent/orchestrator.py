@@ -286,10 +286,11 @@ class EmporioMusicAgent:
     def _is_policy_question(self, norm_msg: str) -> bool:
         policy_terms = (
             "horario", "funcionamento", "abre", "fecha", "sabado", "domingo", "feriado",
-            "endereco", "onde fica", "localizacao", "campo grande", "telefone", "whatsapp",
+            "endereco", "onde fica", "onde e", "localizacao", "localizado", "localizados", "localizada",
+            "onde estao", "onde voce", "onde voces", "qual cidade", "campo grande", "telefone", "whatsapp",
             "contato", "pagamento", "pix", "parcela", "parcelamento", "cartao", "boleto",
             "frete", "motoboy", "sedex", "pac", "jadlog", "garantia", "lgpd", "privacidade",
-            "boquilha", "personalizado", "regulagem", "venda final",
+            "boquilha", "personalizado", "regulagem", "venda final", "como chegar",
         )
         return any(term in norm_msg for term in policy_terms)
 
@@ -629,6 +630,14 @@ class EmporioMusicAgent:
                     "1. O **número do pedido** (ex: `#1`, `#4`, `#8`);\n"
                     "2. O **e-mail**, **telefone** ou **nome completo** cadastrado na compra."
                 )
+            if any(w in norm_msg for w in ("endereco", "localizad", "onde fica", "onde estao", "onde e", "horario")):
+                return (
+                    "A **Empório da Música** fica localizada na **Rua 14 de Maio, 3200 — Centro, Campo Grande/MS** (CEP: 79002-333).\n\n"
+                    "- **Horário de Funcionamento:** Segunda a sexta-feira: 09:00 às 18:00 | Sábado: 09:00 às 13:00 (fechado aos domingos e feriados).\n"
+                    "- **Telefone e WhatsApp:** (67) 3321-4500 | (67) 3341-4444\n"
+                    "- **E-mail oficial:** contato@emporiodamusica.com.br\n\n"
+                    "Venha nos visitar para testar os instrumentos pessoalmente!"
+                )
             return (
                 "Olá! Bem-vindo(a) à **Empório da Música** — *Sua música começa aqui!*\n\n"
                 "Como posso te ajudar hoje? Posso consultar nosso catálogo de instrumentos "
@@ -661,7 +670,21 @@ class EmporioMusicAgent:
             )
 
         for step in tool_steps:
-            sections.append(step.output)
+            if step.tool_name == "search_policies":
+                if any(w in norm_msg for w in ("endereco", "localizad", "onde fica", "onde estao", "onde e", "horario")):
+                    sections.append(
+                        "A nossa loja física fica na **Rua 14 de Maio, 3200 — Centro, Campo Grande/MS** (CEP: 79002-333).\n\n"
+                        "- **Horário:** Segunda a sexta-feira: 09:00 às 18:00 | Sábado: 09:00 às 13:00 (não abrimos aos domingos e feriados).\n"
+                        "- **Contato e WhatsApp:** (67) 3321-4500 | (67) 3341-4444\n"
+                        "- **E-mail:** contato@emporiodamusica.com.br"
+                    )
+                else:
+                    cleaned_policy = re.sub(
+                        r"---\s*\[.*?\]\s*\(Página.*?Relevância:.*?\)\s*---\n?", "", step.output
+                    )
+                    sections.append(cleaned_policy.strip())
+            else:
+                sections.append(step.output)
 
         if any(s.tool_name == "search_policies" for s in tool_steps) and any(
             w in norm_msg for w in ("arrependi", "devolver", "devolucao")

@@ -105,7 +105,8 @@ Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei p
 - **Python como linguagem principal:** Utilizado no backend, orquestração e scripts de avaliação, cumprindo o requisito obrigatório do desafio.
 - **FastMCP em vez de dependências pesadas de agentes:** Optei por estruturar as ferramentas sob o padrão Model Context Protocol (FastMCP). Isso mantém as ferramentas desacopladas do modelo, fáceis de testar unitariamente e prontas para integração externa.
 - **Chunking Semântico por Seções:** Em vez de usar divisores cegos por quantidade de caracteres (que cortam regras no meio), processei o PDF `políticas_da_loja.pdf` dividindo-o exatamente pelas suas 10 seções de negócio, garantindo contexto integral na recuperação.
-- **Cliente LLM com Retry e Backoff Exponencial:** Para contornar limites transitórios de taxa (HTTP 429) em provedores gratuitos como Groq ou Gemini, implementei um decorador com backoff exponencial que tenta até 3 vezes antes de acionar o sintetizador determinístico de resiliência.
+- **Cliente LLM com Retry e Backoff Exponencial:** Para contornar limites transitórios de taxa (HTTP 429) em provedores como Groq ou Gemini, implementei um decorador com backoff exponencial que tenta até 3 vezes antes de acionar o sintetizador determinístico de resiliência.
+- **Higienização de RAG e Fallback de Contingência:** Caso ocorra instabilidade de rede externa com o provedor de LLM, o orquestrador aciona um sintetizador determinístico grounded. O mecanismo higieniza marcadores técnicos de chunks (`--- [...] ---`), entregando respostas formatadas e acolhedoras no tom da persona Téo sem expor metadados internos.
 
 ---
 
@@ -138,13 +139,14 @@ Copie o arquivo de exemplo e insira suas credenciais:
 ```bash
 cp .env.example .env
 ```
-Exemplo de configuração com Groq (gratuita e de baixa latência):
+Exemplo de configuração com Groq (recomendado — modelos open-weights de raciocínio da OpenAI hospedados com inferência ultra-rápida):
 ```ini
 LLM_PROVIDER=groq
 LLM_MODEL=openai/gpt-oss-120b
 GROQ_API_KEY=gsk_sua_chave_groq_aqui
 DATABASE_PATH=data/emporio_da_musica.db
 ```
+*(Também é compatível com o modelo `openai/gpt-oss-20b` caso deseje latência ainda menor).*
 Caso prefira usar o Google Gemini:
 ```ini
 LLM_PROVIDER=google
@@ -169,7 +171,7 @@ Executa a suíte completa de **37 testes automatizados** cobrindo ETL, banco rel
 ```bash
 python main.py --server
 ```
-O servidor iniciará em `http://localhost:8000`. A documentação OpenAPI interativa pode ser consultada em `http://localhost:8000/docs`.
+O servidor iniciará em `http://localhost:8000` com hot-reload ativado para facilitar o desenvolvimento local. A documentação OpenAPI interativa pode ser consultada em `http://localhost:8000/docs`.
 
 ### 6. Executar o Modo CLI (Linha de Comando)
 Caso queira testar a conversação do agente diretamente no terminal:

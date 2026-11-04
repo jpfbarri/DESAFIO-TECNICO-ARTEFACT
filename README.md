@@ -2,6 +2,12 @@
 
 Projeto desenvolvido para o Desafio Técnico de AI Engineer da Artefact. Trata-se de um assistente virtual conversacional para a loja física e e-commerce da Empório da Música (Campo Grande/MS), combinando arquitetura ReAct (Reasoning + Acting), Model Context Protocol (FastMCP), recuperação semântica sobre políticas (RAG), memória persistente em SQLite, resiliência multi-provedor (Groq, Gemini, OpenAI) e uma interface frontend interativa desenvolvida em Next.js com o mascote Téo.
 
+| 1. Encontre o Instrumento Ideal | 2. Preços e Estoque em Tempo Real |
+| :---: | :---: |
+| ![Onboarding - Encontre o instrumento ideal](docs/images/print1.png) | ![Onboarding - Preços e estoque em tempo real](docs/images/print2.png) |
+| **3. Suporte do Início ao Fim** | **4. Interface Interativa com o Mascote Téo** |
+| ![Onboarding - Suporte do início ao fim](docs/images/print3.png) | ![Interface Web com o Mascote Téo](docs/images/print4.png) |
+
 ### Quickstart (Execução Rápida)
 ```bash
 # 1. Configurar ambiente virtual e instalar dependências

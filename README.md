@@ -152,7 +152,7 @@ Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos 
 ### Pré-requisitos
 - Python 3.11 ou superior
 - Node.js 18 ou superior (para executar a interface web)
-- Chave de API de LLM (recomendo Groq gratuita ou Google Gemini)
+- Chave de API da Groq (gratuita e sem cartão em [console.groq.com](https://console.groq.com))
 
 ### 1. Clonar o Repositório e Configurar Ambiente
 ```bash
@@ -176,7 +176,7 @@ Copie o arquivo de exemplo e insira suas credenciais:
 ```bash
 cp .env.example .env
 ```
-Exemplo de configuração com Groq (recomendado — modelos open-weights de raciocínio da OpenAI hospedados com inferência ultra-rápida):
+Configuração com Groq (recomendado — inferência em LPUs ultrarrápida):
 ```ini
 LLM_PROVIDER=groq
 LLM_MODEL=openai/gpt-oss-120b
@@ -184,13 +184,6 @@ GROQ_API_KEY=gsk_sua_chave_groq_aqui
 DATABASE_PATH=data/emporio_da_musica.db
 ```
 *(Também é compatível com o modelo `openai/gpt-oss-20b` caso deseje latência ainda menor).*
-Caso prefira usar o Google Gemini:
-```ini
-LLM_PROVIDER=google
-LLM_MODEL=gemini-2.5-flash
-GOOGLE_API_KEY=sua_chave_gemini_aqui
-DATABASE_PATH=data/emporio_da_musica.db
-```
 
 ### 3. Executar o Pipeline de ETL (Criação do Banco SQLite)
 ```bash

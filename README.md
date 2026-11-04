@@ -119,7 +119,14 @@ Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos 
 3. **Fidelidade ao catálogo e estoque real:** As categorias *Instrumentos de Sopro* e *Cordas Orquestrais* constam no CSV de categorias, mas não possuem produtos cadastrados no CSV de produtos. Assumi que o agente deve informar com transparência a falta momentânea desses itens no estoque, sem alucinar marcas ou preços inexistentes.
 4. **Resiliência e localização dos dados brutos:** Mantive os arquivos originais em `arquivos/` e construí o pipeline de ETL e o chunker para resolver caminhos automaticamente tanto em `arquivos/` quanto em `data/` (com ou sem o prefixo original), consolidando a base relacional normalizada em `data/emporio_da_musica.db`.
 
-### Justificativas de Tecnologias Utilizadas
+### Justificativas de Tecnologias Utilizadas e Trade-offs Arquiteturais
+
+- **Abordagem ReAct Modular Própria vs Frameworks Monolíticos (LangChain / LlamaIndex):**
+  - *Trade-off Consciente:* Frameworks como LangChain e LlamaIndex frequentemente adicionam camadas espessas de abstração opaca, sofrem com quebras constantes de retrocompatibilidade em atualizações de versão e introduzem overhead computacional desnecessário.
+  - *Decisão:* Optei por implementar o loop ReAct, o gerenciador de memória transacional e a resolução de anáfora diretamente em Python puro com schemas tipados (**Pydantic**). Isso garante **100% de controle sobre o ciclo de raciocínio**, facilidade de depuração, performance máxima e imunidade a quebras de API externas, além de demonstrar domínio dos conceitos fundamentais de agentes em vez de mero uso de abstrações pré-fabricadas.
+- **Armazenamento com SQLite Relacional + WAL Mode vs PostgreSQL/Vector DBs Dedicados:**
+  - *Trade-off Consciente:* Um banco como PostgreSQL com extensão `pgvector` ou clusters como Pinecone/Qdrant seriam escolhas padrão para produção enterprise com alta concorrência de escrita. No entanto, exigiriam subir múltiplos containers Docker (`docker-compose`), criar volumes persistentes e gerenciar portas de rede na máquina de avaliação.
+  - *Decisão:* Para o contexto do desafio, priorizei a **Portabilidade Absoluta (Zero-Friction Evaluation)**. O SQLite entrega execução instantânea em qualquer sistema operacional sem nenhuma dependência de infraestrutura externa. Para garantir qualidade de produção, configurei `PRAGMA foreign_keys = ON`, `PRAGMA journal_mode = WAL` (Write-Ahead Logging para concorrência de leitura/escrita) e criei **10 índices relacionais** estratégicos nas tabelas de produtos, pedidos, clientes e promoções. Toda a camada de dados foi isolada sob o padrão *Repository*, permitindo migração imediata para PostgreSQL em menos de 1 dia de trabalho.
 - **Python como linguagem principal:** Utilizado no backend, orquestração e scripts de avaliação, cumprindo o requisito obrigatório do desafio.
 - **FastMCP em vez de dependências pesadas de agentes:** Optei por estruturar as ferramentas sob o padrão Model Context Protocol (FastMCP). Isso mantém as ferramentas desacopladas do modelo, fáceis de testar unitariamente e prontas para integração externa.
 - **Arquitetura de Retrieval (RAG):**
@@ -130,7 +137,7 @@ Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos 
   - **Provedor (Groq):** Homologuei a solução prioritariamente na **Groq** por dois fatores decisivos:
     1. *Velocidade de Inferência:* O processamento via LPUs entrega respostas em streaming com latência de ~1 segundo, proporcionando uma experiência de chat fluida.
     2. *Acessibilidade e Custo Zero:* A Groq disponibiliza um plano gratuito generoso sem exigir cartão de crédito internacional. Isso garante que qualquer avaliador da Artefact consiga clonar o repositório, gerar uma chave gratuita em segundos e rodar o projeto integralmente sem custos de infraestrutura.
-  - **Modelo:** Padronizado no **`openai/gpt-oss-120b`**, modelo open-weights de alta capacidade de raciocínio da OpenAI hospedado na Groq (com janela de contexto de 131k tokens e suporte robusto para o português brasileiro).
+  - **Modelo:** Padronizado no **`openai/gpt-oss-120b`**, modelo open-weights de alta capacidade de raciocínio da OpenAI hospedado na Groq (com janela de contexto de 131k tokens, geração com reasoning interno e suporte robusto para o português brasileiro).
 - **Estratégia de Prompting e Guardrails:**
   - **System Prompt Estruturado:** Definido em `src/agent/prompts.py`, separando rigidamente a Persona (Téo), os Guardrails Comerciais Estritos e as Diretrizes de Formatação (proibição expressa de tabelas Markdown com pipes, privilegiando tópicos limpos e destaque de valores no PIX).
   - **Augmented Context Injection:** As ferramentas retornam payloads estruturados que são injetados em blocos delimitados (`[Resultado da Tool]`) antes da geração final, forçando o modelo a ancorar toda afirmação numérica nos dados retornados pelas tools.
@@ -272,22 +279,59 @@ Na pasta [`docs/examples/`](docs/examples/), documentei 5 transcrições complet
 
 ## 7. Limitações Conhecidas e Próximos Passos (Com Mais Tempo)
 
-Em cumprimento às diretrizes de transparência do desafio, mapeei as limitações da implementação atual e o que eu construiria com mais tempo de desenvolvimento:
+Em cumprimento às diretrizes de transparência do desafio, mapeei as limitações da implementação atual e detalhei a evolução arquitetural que seria implementada com mais tempo de desenvolvimento:
 
-1. **Autenticação de Pedidos Baseada em Dados Textuais:**
-   - *Situação atual:* A validação LGPD confere se o e-mail, telefone ou nome digitados batem com os dados do cliente cadastrados no SQLite. Caso um terceiro conheça o e-mail da vítima e o número do pedido, conseguiria consultar.
-   - *Com mais tempo:* Implementaria envio de **código OTP de 6 dígitos** por e-mail ou WhatsApp para confirmação do titular antes de liberar dados sensíveis, ou integração com fluxo de login via OAuth2/JWT.
-2. **Categorias com Estoque Vazio no Dataset Oficial:**
-   - *Situação atual:* As categorias *Instrumentos de Sopro (Madeiras)*, *Instrumentos de Sopro (Metais)* e *Cordas Orquestrais* constam em `categories.csv`, mas não possuem itens em `products.csv`.
-   - *Com mais tempo:* Criaria um fluxo de captação de lead (*"Avise-me quando chegar"*) para reter o interesse do cliente nessas categorias.
-3. **Ausência de Fotos dos Instrumentos no Dataset:**
-   - *Situação atual:* O dataset fornecido não possui colunas de imagens. Optei deliberadamente por não raspar imagens genéricas da web para evitar o risco de *alucinação visual* (exibir a foto de um violão com cordas de aço quando o cliente perguntou de nylon).
-   - *Com mais tempo:* Integraria um repositório de mídia (Amazon S3 / Cloudflare R2) com fotos homologadas por SKU do produto.
-4. **Armazenamento e Escalabilidade de Sessão:**
-   - *Situação atual:* O SQLite resolve com simplicidade e portabilidade as necessidades do desafio local, mas possui trava de escrita única em acessos muito concorrentes.
-   - *Com mais tempo:* Migraria a base de dados para **PostgreSQL**, o armazenamento vetorial para a extensão **pgvector** e o cache de sessões para **Redis**.
-5. **Observabilidade de LLM:**
-   - *Com mais tempo:* Instrumentaria a aplicação com **OpenTelemetry** e ferramentas de tracing como **Langfuse** ou **Arize Phoenix**, monitorando custo de tokens, latência de tools e taxa de fallback em produção.
+### A. Evolução para Arquitetura Multi-Agente Hierárquica (Supervisor / Swarm Pattern via LangGraph)
+Na implementação atual (v1), o ciclo ReAct opera com um **agente único orquestrador** que centraliza a detecção de intenção, o acionamento de tools e a síntese da resposta. Embora altamente eficiente, previsível e fácil de testar, para uma escala corporativa de atendimento de alta complexidade a evolução recomendada é migrar para uma **Arquitetura Hierárquica Multi-Agente**:
+
+```mermaid
+flowchart TD
+    Cliente([Cliente]) <--> Router[Supervisor / Router Agent\nClassificador de Intenção & Triagem]
+    
+    subgraph Swarm ["Swarm de Agentes Especializados (LangGraph StateGraph)"]
+        A1[Agente de Vendas & Catálogo\nBusca semântica, estoque, cross-sell]
+        A2[Agente de Pós-Venda & Logística\nStatus de pedidos, rastreio, 2FA/OTP]
+        A3[Agente de Políticas & RAG\nGarantia, devoluções CDC, regras da loja]
+        A4[Agente de Escalação Humana\nTriagem de avaria, geração de protocolo JSON]
+    end
+    
+    Router -->|Intenção de Compra/Preço| A1
+    Router -->|Consulta de Pedido| A2
+    Router -->|Dúvida Contratual| A3
+    Router -->|Reclamação Crítica / SLA| A4
+    
+    A1 & A2 & A3 & A4 --> Synthesizer[Agente de Síntese & Persona Téo\nUniformização de tom e envio ao cliente]
+    Synthesizer --> Cliente
+```
+
+- **Supervisor Agent (LangGraph StateGraph):** Atua como roteador de triagem, analisando a mensagem do cliente e direcionando o fluxo para nós especializados no grafo de estados cíclico.
+- **Sub-Agente de Vendas & Catálogo:** Especializado em especificações técnicas de instrumentos (nylon vs aço, madeiras do tampo), cálculo de desconto e sugestão de alternativas compatíveis quando um item estiver esgotado.
+- **Sub-Agente de Pós-Venda & Logística:** Gerencia o ciclo de vida de pedidos com confirmação em duas etapas (2FA via SMS/WhatsApp) antes de expor rastreios e dados de entrega.
+- **Sub-Agente de Políticas & RAG:** Focado na interpretação do manual de políticas da loja, integrando modelo de *Reranking* (ex: Cohere Rerank ou ColBERT) para refinar os top-k trechos normativos.
+- **Sub-Agente de Escalação Humana:** Gera automaticamente um sumário executivo em JSON contendo histórico estruturado, sentimento do cliente e SLA de urgência para o atendente do SAC.
+
+### B. Migração para Stack Corporativa de Produção (PostgreSQL, pgvector e Redis)
+- **Persistência Relacional Concorrente:** Substituição do SQLite por **PostgreSQL**, permitindo concorrência massiva de escritas, réplicas de leitura para relatórios e particionamento de tabelas de histórico por data.
+- **Armazenamento Vetorial Transacional (pgvector):** Unificação dos dados transacionais da loja com os embeddings de produtos e políticas no mesmo banco PostgreSQL via extensão `pgvector` com índices **HNSW** (*Hierarchical Navigable Small World*), viabilizando busca híbrida (BM25 + vetorial via *Reciprocal Rank Fusion - RRF*).
+- **Gerenciamento de Estado Distribuído com Redis:** Checkpointer de conversas migrado do SQLite para **Redis**, permitindo expiração automática de sessões inativas (TTL), pub/sub de eventos em tempo real e compartilhamento de contexto entre múltiplas réplicas do backend FastAPI em Kubernetes.
+
+### C. Suporte a Modelos Locais Soberanos (Ollama / vLLM para On-Premises)
+- Para empresas com requisitos estritos de conformidade de dados ou indústrias reguladas onde informações transacionais não podem trafegar por APIs de terceiros, implementaria suporte nativo a servidores de inferência local via **vLLM** ou **Ollama** executando modelos abertos (como `llama-3.3-70b-instruct` ou `qwen2.5-32b-instruct`) em infraestrutura de GPUs dedicadas (NVIDIA A100/H100), aproveitando a interface compatível com OpenAI já implementada no `llm_client.py`.
+
+### D. Autenticação Robusta em Duas Etapas (2FA / OTP e JWT)
+- *Situação atual:* A validação LGPD confere se o e-mail, telefone ou nome digitados batem com os dados do cliente cadastrados no SQLite. Caso um terceiro conheça o e-mail da vítima e o número do pedido, conseguiria consultar.
+- *Com mais tempo:* Implementaria envio de **código OTP de 6 dígitos** por e-mail ou WhatsApp para confirmação do titular antes de liberar dados sensíveis, além de autenticação via token JWT para clientes logados na loja virtual.
+
+### E. Observabilidade de IA de Ponta a Ponta (Tracing com Langfuse / Phoenix)
+- Instrumentação com **OpenTelemetry** e ferramentas especializadas em LLMOps como **Langfuse** ou **Arize Phoenix**, monitorando em dashboards de produção:
+  - Latência granular por etapa (tempo de busca no banco, tempo de RAG e tempo de geração da LLM).
+  - Custo em dólares por sessão e consumo de tokens de entrada/saída.
+  - Taxa de acionamento do fallback determinístico de contingência.
+  - Avaliação de alucinação contínua com pipelines de *LLM-as-a-judge*.
+
+### F. Curadoria e Repositório de Mídia Oficial dos Instrumentos
+- *Situação atual:* O dataset oficial fornecido não possui colunas de imagens. Vetei deliberadamente a raspagem de fotos da internet para evitar o risco de *alucinação visual* (exibir a foto de um violão com cordas de aço quando o cliente perguntou de nylon).
+- *Com mais tempo:* Criação de um pipeline de ingestão de mídia integrado a um bucket S3/Cloudflare R2, associando fotos homologadas em múltiplos ângulos a cada SKU do catálogo da loja.
 
 ---
 

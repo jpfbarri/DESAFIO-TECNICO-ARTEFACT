@@ -24,7 +24,7 @@ A Empório da Música é uma loja tradicional localizada na Rua 14 de Maio, 3200
 ### Persona: Téo
 Para o agente, estruturei a persona do **Téo**, o especialista musical virtual da loja:
 - **Tom de voz:** Cordial, consultivo, paciente e próximo da realidade dos músicos (desde iniciantes com orçamento restrito até instrumentistas experientes).
-- **Escopo restrito:** A loja comercializa exclusivamente instrumentos musicais completos. A persona não vende e não alucina preços de acessórios avulsos (encordoamentos, palhetas, cabos, cases ou pedais), orientando educadamente o cliente sobre o escopo da loja física e indicando parceiros regionais.
+- **Escopo restrito:** A loja comercializa exclusivamente instrumentos musicais completos. A persona não vende e não alucina preços de acessórios avulsos (encordoamentos, palhetas, cabos, cases ou pedais), orientando educadamente o cliente sobre o escopo exclusivo da loja física em instrumentos musicais.
 - **Rigor com dados e privacidade:** O Téo não expõe dados de pedidos de terceiros (conformidade com LGPD) e nunca inventa condições comerciais fora das tabelas vigentes do banco.
 
 ---
@@ -88,7 +88,7 @@ flowchart TD
 
 ## 3. Decisões Técnicas e Tratamento de Regras de Negócio
 
-Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei particularidades de negócio que foram tratadas diretamente nas ferramentas para garantir que o agente não alucinassem:
+Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei particularidades de negócio que foram tratadas diretamente nas ferramentas para garantir que o agente não alucinasse:
 
 | Regra de Negócio / Pegadinha | Desafio Encontrado | Solução Implementada |
 | :--- | :--- | :--- |
@@ -101,12 +101,31 @@ Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei p
 | **Escalação para Atendimento Humano** | Avarias de transporte (ex: instrumento que chegou com braço quebrado). | A tool `escalate_to_human` gera protocolo oficial (`EMP-AAAAMMDD-XXXX`), registra a ocorrência e fornece o prazo oficial de SLA (24h úteis) e o WhatsApp da equipe. |
 | **Resolução de Anáfora Multiturn** | O cliente pergunta *"Quais guitarras vocês têm até 1500?"* e depois pergunta *"E a primeira, tem microfone duplo?"*. | O orquestrador salva as saídas estruturadas das tools na memória SQLite e resolve pronomes (*"dela"*, *"do primeiro"*, *"no pix hoje"*) resgatando o modelo exato do histórico recente. |
 
+### Premissas e Suposições de Negócio Adotadas
+Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos a interpretação, adotei as seguintes premissas:
+1. **Não-cumulatividade do PIX:** Assumi que o desconto de 5% à vista no PIX incide sobre o preço de tabela e não se acumula com produtos em liquidação ou promoções sazonais ativas (`is_active = 1`), preservando a margem da loja e a coerência comercial.
+2. **Autenticação em 2 fatores para pedidos (LGPD):** Assumi que o número do pedido isolado não confere legitimidade de acesso. Para respeitar o princípio da segurança e prevenção da LGPD (Lei 13.709/2018), exigi a validação cruzada com ao menos um dado confirmador do comprador (e-mail, telefone ou nome completo).
+3. **Fidelidade ao catálogo e estoque real:** As categorias *Instrumentos de Sopro* e *Cordas Orquestrais* constam no CSV de categorias, mas não possuem produtos cadastrados no CSV de produtos. Assumi que o agente deve informar com transparência a falta momentânea desses itens no estoque, sem alucinar marcas ou preços inexistentes.
+4. **Localização e integridade dos dados brutos:** Mantive os arquivos CSV e PDF originais fornecidos pela Artefact preservados em `arquivos/`, enquanto a base relacional consolidada pelo pipeline de ETL e indexada reside em `data/emporio_da_musica.db`.
+
 ### Justificativas de Tecnologias Utilizadas
 - **Python como linguagem principal:** Utilizado no backend, orquestração e scripts de avaliação, cumprindo o requisito obrigatório do desafio.
 - **FastMCP em vez de dependências pesadas de agentes:** Optei por estruturar as ferramentas sob o padrão Model Context Protocol (FastMCP). Isso mantém as ferramentas desacopladas do modelo, fáceis de testar unitariamente e prontas para integração externa.
-- **Chunking Semântico por Seções:** Em vez de usar divisores cegos por quantidade de caracteres (que cortam regras no meio), processei o PDF `políticas_da_loja.pdf` dividindo-o exatamente pelas suas 10 seções de negócio, garantindo contexto integral na recuperação.
-- **Cliente LLM com Retry e Backoff Exponencial:** Para contornar limites transitórios de taxa (HTTP 429) em provedores como Groq ou Gemini, implementei um decorador com backoff exponencial que tenta até 3 vezes antes de acionar o sintetizador determinístico de resiliência.
-- **Higienização de RAG e Fallback de Contingência:** Caso ocorra instabilidade de rede externa com o provedor de LLM, o orquestrador aciona um sintetizador determinístico grounded. O mecanismo higieniza marcadores técnicos de chunks (`--- [...] ---`), entregando respostas formatadas e acolhedoras no tom da persona Téo sem expor metadados internos.
+- **Arquitetura de Retrieval (RAG):**
+  - **Chunking Semântico:** Em vez de usar divisores cegos por quantidade de caracteres (que cortam regras no meio), dividi o arquivo `políticas_da_loja.pdf` estritamente pelas suas **10 seções temáticas de negócio** estruturadas em `data/policies_sections.json`.
+  - **Embeddings & Vetorização:** Utilizei o modelo open-weights `BAAI/bge-small-en-v1.5` gerido via `FastEmbed`, com indexação vetorial em memória através de **FAISS**, recuperando as `top_k = 3` seções mais relevantes por consulta.
+  - **Fallback Determinístico Local:** Caso o ambiente execute sem conectividade para download de pesos, o recuperador aciona automaticamente uma busca determinística baseada em TF-IDF com char n-grams `[3, 4]` e expansão por dicionário de sinônimos musicais.
+- **Provedor e Escolha do Modelo de LLM:**
+  - **Provedor (Groq):** Homologuei a solução prioritariamente na **Groq** por dois fatores decisivos:
+    1. *Velocidade de Inferência:* O processamento via LPUs entrega respostas em streaming com latência de ~1 segundo, proporcionando uma experiência de chat fluida.
+    2. *Acessibilidade e Custo Zero:* A Groq disponibiliza um plano gratuito generoso sem exigir cartão de crédito internacional. Isso garante que qualquer avaliador da Artefact consiga clonar o repositório, gerar uma chave gratuita em segundos e rodar o projeto integralmente sem custos de infraestrutura.
+  - **Modelo:** Padronizado no **`openai/gpt-oss-120b`**, modelo open-weights de alta capacidade de raciocínio da OpenAI hospedado na Groq (com janela de contexto de 131k tokens e suporte robusto para o português brasileiro).
+- **Estratégia de Prompting e Guardrails:**
+  - **System Prompt Estruturado:** Definido em `src/agent/prompts.py`, separando rigidamente a Persona (Téo), os Guardrails Comerciais Invioláveis e as Diretrizes de Formatação (proibição expressa de tabelas Markdown com pipes, privilegiando tópicos limpos e destaque de valores no PIX).
+  - **Augmented Context Injection:** As ferramentas retornam payloads estruturados que são injetados em blocos delimitados (`[Resultado da Tool]`) antes da geração final, forçando o modelo a ancorar toda afirmação numérica nos dados retornados pelas tools.
+  - **Defesa Ativa contra Prompt Injection:** O orquestrador detecta tentativas de burlar regras ("amigo do dono", "autorizado pelo gerente") e injeta um alerta prioritário de segurança no prompt instruindo o modelo a recusar o desconto falso e manter os valores oficiais.
+- **Cliente LLM com Retry e Backoff Exponencial:** Para contornar limites transitórios de taxa (HTTP 429) em APIs públicas, implementei um decorador com backoff exponencial com jitter que tenta até 3 vezes antes de acionar o sintetizador determinístico de resiliência.
+- **Higienização de RAG e Fallback de Contingência:** Caso ocorra instabilidade severa de rede externa com a API de LLM, o orquestrador aciona um sintetizador determinístico grounded. O mecanismo higieniza marcadores técnicos de chunks (`--- [...] ---`), entregando respostas formatadas e acolhedoras no tom da persona Téo sem expor metadados internos.
 
 ---
 
@@ -119,7 +138,7 @@ Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei p
 
 ### 1. Clonar o Repositório e Configurar Ambiente
 ```bash
-git clone https://github.com/seu-usuario/desafio-artefact.git
+git clone <URL_DO_SEU_REPOSITORIO>
 cd desafio-artefact
 
 # Criação e ativação do ambiente virtual
@@ -194,12 +213,19 @@ Acesse `http://localhost:3000` no seu navegador para interagir com a interface c
 
 Para mensurar de forma contínua e repetível se o agente está acionando as ferramentas corretas e respeitando os guardrails de negócio, construí um runner de avaliação automatizada (`evals/runner.py`) que consome os cenários declarados em `evals/cases.yaml`.
 
+Cada caso é avaliado deterministicamente através de asserções de contrato em três camadas:
+1. **Contrato de Ferramentas:** Verifica se o orquestrador acionou exatamente a(s) tool(s) correta(s) para a intenção.
+2. **Termos Obrigatórios (*Must-have*):** Garante a presença dos fatos e números oficiais de negócio (ex: preço de R$ 2.199,00, prazo de 7 dias, endereço da loja).
+3. **Termos Proibidos (*Must-not* / Guardrails Negativos):** Assegura que o agente não alucinou condições inválidas (ex: proíbe dizer que a promoção do Takamine está ativa ou citar o modelo esgotado *Giannini GF-3D*).
+
 Para rodar a avaliação:
 ```bash
 python -m evals.runner
 ```
 
-### Resultados da Bateria de Avaliação (15/15 Cenários — 100% de Sucesso)
+### Resultados da Bateria de Avaliação (15/15 Cenários)
+
+> **Nota Metodológica:** Esta suíte foi projetada como uma **garantia de não-regressão e conformidade de guardrails**. Ela assegura que as regras e pegadinhas de negócio não se quebrem com novos prompts ou refatorações. Contudo, reconheço que um benchmark sintético fechado valida conformidade de regras, mas não comprova generalização irrestrita; para um ambiente produtivo aberto, recomendo complementar com amostragem humana e avaliadores de qualidade (LLM-as-a-judge).
 
 | ID | Cenário Avaliado | Ferramenta Esperada | Critério de Sucesso & Guardrails | Status |
 | :--- | :--- | :--- | :--- | :--- |
@@ -258,15 +284,21 @@ Em cumprimento às diretrizes de transparência do desafio, mapeei as limitaçõ
 
 Em total transparência com o comitê de avaliação da Artefact:
 
-Para o desenvolvimento deste projeto, utilizei assistentes de código com modelos de linguagem (Gemini e Claude via interface Antigravity) atuando como **par técnico de programação**.
+Para o desenvolvimento deste projeto, utilizei assistentes de código com modelos de linguagem atuando estritamente como **par técnico de programação**.
 
-Em vez de solicitar código pronto de forma passiva, atuei liderando ativamente o processo:
-- **Definição de requisitos e regras de negócio:** Especifiquei as regras de conformidade (LGPD na consulta de pedidos, regra de não-cumulatividade do PIX, identificação da promoção inativa do Takamine GD20 e política de frete reverso).
-- **Rigor arquitetural:** Conduzi a separação em camadas limpas (FastMCP para tools, SQLite relacional indexado, chunking semântico para o RAG e FastAPI para SSE), evitando bibliotecas monolíticas de agentes que dificultam testes e depuração.
-- **Validação contínua e TDD:** Cada componente foi acompanhado da criação de testes unitários automatizados (37 testes passando) e da expansão da suíte de avaliação com 15 casos adversariais (incluindo tentativas de prompt injection e consultas comparativas).
-- **Refinamento de produto e UX:** Conduzi a construção da interface gráfica no Next.js, exigindo microinterações fluidas (transições com AnimatePresence, componente ThoughtLine com cronômetro de raciocínio e normalização visual das poses 3D do mascote).
+Em vez de solicitar código pronto de forma passiva, atuei liderando a arquitetura, definindo as regras de negócio e corrigindo ativamente os desvios da IA. Três exemplos concretos desse processo:
 
-Esse método de trabalho me permitiu acelerar tarefas repetitivas de implementação e focar a atenção no raciocínio crítico, na fidelidade dos dados e na qualidade da experiência final entregue.
+1. **Veto à Raspagem de Imagens Externas (Prevenção de Alucinação Visual):**
+   - *Sugestão da IA:* Ao constatar que o dataset não continha links de fotos dos produtos, o assistente sugeriu raspar imagens da web ou usar placeholders externos.
+   - *Minha Decisão:* Vetei a proposta. Imagens genéricas da internet geram alto risco de alucinação visual (exibir a foto de um violão de cordas de aço quando o cliente buscou nylon). Priorizei a integridade das informações do banco de dados e documentei a ausência como limitação consciente do dataset.
+2. **Diagnóstico de Modelos e Infraestrutura de Provedores:**
+   - *Erro da IA:* O assistente sugeriu IDs de modelos Llama incompatíveis com o catálogo ativo da minha conta da Groq, resultando em erros HTTP 404 (`model_not_found`).
+   - *Minha Decisão:* Analisei o painel do Console da Groq, identifiquei que o modelo de raciocínio disponível era o `openai/gpt-oss-120b` e corrigi a configuração de ambiente e a normalização do cliente HTTP.
+3. **Higienização de RAG e Experiência do Usuário no Fallback:**
+   - *Erro da IA:* A implementação inicial do sintetizador determinístico de contingência simplesmente concatenava os chunks brutos do RAG, exibindo tags técnicas (`--- [1. Sobre a Empório...] (Relevância: 0.21) ---`) e dados de CNPJ no chat.
+   - *Minha Decisão:* Exigi e orientei a refatoração imediata da camada de resiliência para filtrar regex de metadados e formatar as políticas em texto conversacional fluido, preservando a persona do Téo mesmo em modo offline.
+
+Esse método de trabalho me permitiu acelerar o ritmo de codificação sem abrir mão da liderança técnica, da fidelidade dos dados e da qualidade da arquitetura entregue.
 
 ---
 

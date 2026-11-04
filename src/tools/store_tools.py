@@ -76,6 +76,10 @@ def search_products(
         rows = _execute_product_search_query(
             conn, query, category, max_price_brl, min_price_brl, only_available
         )
+        if not rows and category and query:
+            rows = _execute_product_search_query(
+                conn, "", category, max_price_brl, min_price_brl, only_available
+            )
         if not rows:
             return _format_empty_product_search(
                 conn, query, category, max_price_brl, min_price_brl
@@ -146,6 +150,20 @@ def _format_empty_product_search(
             f"Nenhum produto disponível em estoque para os filtros informados. "
             f"Itens encontrados mas indisponíveis no momento: {items_desc}."
         )
+    if category and max_price_brl is not None:
+        above_budget = _execute_product_search_query(
+            conn, "", category, None, None, only_available=True
+        )
+        if above_budget:
+            top_options = "\n".join(
+                f"- [ID {r['product_id']}] {r['name']} ({r['category_name']}) | R$ {float(r['price_brl']):.2f} (ou R$ {float(r['price_brl']) * (1.0 - PIX_DISCOUNT_RATE):.2f} à vista no PIX com 5% OFF) | Estoque: {r['stock_quantity']} un."
+                for r in above_budget[:3]
+            )
+            return (
+                f"Nenhum instrumento disponível na categoria '{category}' até R$ {max_price_brl:.2f}.\n"
+                f"As opções disponíveis em estoque nesta categoria iniciam em R$ {float(above_budget[0]['price_brl']):.2f}:\n"
+                f"{top_options}"
+            )
     return "Nenhum instrumento encontrado no catálogo com os critérios especificados."
 
 

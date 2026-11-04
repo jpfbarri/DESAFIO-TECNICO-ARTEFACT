@@ -1,5 +1,5 @@
 # Relatório de Limpeza e Carga de Dados (ETL)
-**Data de Execução:** 2026-11-03 21:58:23
+**Data de Execução:** 2026-11-03 22:22:16
 
 ## 1. Visão Geral do Pipeline
 O pipeline lê os arquivos CSV originais da pasta `arquivos/`, aplica normalização de codificação UTF-8, limpa strings e caracteres em branco, valida rigorosamente os tipos e regras de negócio com **Pydantic** e persiste em banco relacional **SQLite** com integridade referencial (foreign keys ativas) e índices otimizados.

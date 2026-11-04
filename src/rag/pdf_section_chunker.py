@@ -7,9 +7,17 @@ from pydantic import BaseModel, Field
 DEFAULT_POLICIES_JSON_PATH = (
     Path(__file__).resolve().parent.parent.parent / "data" / "policies_sections.json"
 )
-DEFAULT_POLICIES_PDF_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "arquivos" / "políticas_da_loja.pdf"
-)
+def _resolve_policies_pdf_path() -> Path:
+    project_root = Path(__file__).resolve().parent.parent.parent
+    for directory in (project_root / "arquivos", project_root / "data"):
+        for name in ("políticas_da_loja.pdf", "politicas_da_loja.pdf"):
+            target = directory / name
+            if target.exists():
+                return target
+    return project_root / "arquivos" / "políticas_da_loja.pdf"
+
+
+DEFAULT_POLICIES_PDF_PATH = _resolve_policies_pdf_path()
 SECTION_HEADING_PATTERN = re.compile(r"\n(?=\d{1,2}\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ])")
 
 

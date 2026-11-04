@@ -13,8 +13,25 @@ from src.models.schemas import Category, Customer, Order, OrderItem, Product, Pr
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-RAW_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "arquivos"
-DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "docs"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DOCS_DIR = PROJECT_ROOT / "docs"
+
+
+def _resolve_csv_file(base_name: str) -> Path:
+    candidate_dirs = [PROJECT_ROOT / "arquivos", PROJECT_ROOT / "data"]
+    candidate_patterns = [
+        f"desafio_tecnico_ai_eng - {base_name}.csv",
+        f"{base_name}.csv",
+        f"desafio_tecnico_ai_eng_{base_name}.csv",
+    ]
+    for directory in candidate_dirs:
+        if directory.exists():
+            for pattern in candidate_patterns:
+                target = directory / pattern
+                if target.exists():
+                    return target
+    # Fallback padrão
+    return PROJECT_ROOT / "arquivos" / f"desafio_tecnico_ai_eng - {base_name}.csv"
 
 
 def clean_categories(df: pd.DataFrame) -> Tuple[List[Dict], List[str]]:
@@ -152,12 +169,12 @@ def run_etl() -> Dict[str, int]:
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
     csv_files = {
-        "categories": RAW_DATA_DIR / "desafio_tecnico_ai_eng - categories.csv",
-        "customers": RAW_DATA_DIR / "desafio_tecnico_ai_eng - customers.csv",
-        "products": RAW_DATA_DIR / "desafio_tecnico_ai_eng - products.csv",
-        "promotions": RAW_DATA_DIR / "desafio_tecnico_ai_eng - promotions.csv",
-        "orders": RAW_DATA_DIR / "desafio_tecnico_ai_eng - orders.csv",
-        "order_items": RAW_DATA_DIR / "desafio_tecnico_ai_eng - order_items.csv",
+        "categories": _resolve_csv_file("categories"),
+        "customers": _resolve_csv_file("customers"),
+        "products": _resolve_csv_file("products"),
+        "promotions": _resolve_csv_file("promotions"),
+        "orders": _resolve_csv_file("orders"),
+        "order_items": _resolve_csv_file("order_items"),
     }
 
     report_lines = [

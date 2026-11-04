@@ -2,6 +2,17 @@
 
 Projeto desenvolvido para o Desafio Técnico de AI Engineer da Artefact. Trata-se de um assistente virtual conversacional para a loja física e e-commerce da Empório da Música (Campo Grande/MS), combinando arquitetura ReAct (Reasoning + Acting), Model Context Protocol (FastMCP), recuperação semântica sobre políticas (RAG), memória persistente em SQLite, resiliência multi-provedor (Groq, Gemini, OpenAI) e uma interface frontend interativa desenvolvida em Next.js com o mascote Téo.
 
+### Quickstart (Execução Rápida)
+```bash
+# 1. Configurar ambiente virtual e instalar dependências
+python -m venv venv && source venv/bin/activate  # Windows: .\venv\Scripts\activate
+pip install -r requirements.txt && cp .env.example .env
+
+# 2. Executar ETL (SQLite) e subir o servidor FastAPI com hot-reload
+python main.py --etl
+python main.py --server  # Acessível em http://localhost:8000 (Docs: /docs)
+```
+
 ---
 
 ## Sumário
@@ -104,16 +115,16 @@ Durante a exploração dos arquivos do desafio (`.csv` e `.pdf`), identifiquei p
 ### Premissas e Suposições de Negócio Adotadas
 Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos a interpretação, adotei as seguintes premissas:
 1. **Não-cumulatividade do PIX:** Assumi que o desconto de 5% à vista no PIX incide sobre o preço de tabela e não se acumula com produtos em liquidação ou promoções sazonais ativas (`is_active = 1`), preservando a margem da loja e a coerência comercial.
-2. **Autenticação em 2 fatores para pedidos (LGPD):** Assumi que o número do pedido isolado não confere legitimidade de acesso. Para respeitar o princípio da segurança e prevenção da LGPD (Lei 13.709/2018), exigi a validação cruzada com ao menos um dado confirmador do comprador (e-mail, telefone ou nome completo).
+2. **Validação cruzada de dados cadastrais (LGPD):** Assumi que o número do pedido isolado não confere legitimidade de acesso. Para respeitar o princípio da segurança e prevenção da LGPD (Lei 13.709/2018), exigi a validação cruzada do número do pedido com ao menos um dado confirmador do titular cadastrado (e-mail, telefone ou nome completo).
 3. **Fidelidade ao catálogo e estoque real:** As categorias *Instrumentos de Sopro* e *Cordas Orquestrais* constam no CSV de categorias, mas não possuem produtos cadastrados no CSV de produtos. Assumi que o agente deve informar com transparência a falta momentânea desses itens no estoque, sem alucinar marcas ou preços inexistentes.
-4. **Localização e integridade dos dados brutos:** Mantive os arquivos CSV e PDF originais fornecidos pela Artefact preservados em `arquivos/`, enquanto a base relacional consolidada pelo pipeline de ETL e indexada reside em `data/emporio_da_musica.db`.
+4. **Resiliência e localização dos dados brutos:** Mantive os arquivos originais em `arquivos/` e construí o pipeline de ETL e o chunker para resolver caminhos automaticamente tanto em `arquivos/` quanto em `data/` (com ou sem o prefixo original), consolidando a base relacional normalizada em `data/emporio_da_musica.db`.
 
 ### Justificativas de Tecnologias Utilizadas
 - **Python como linguagem principal:** Utilizado no backend, orquestração e scripts de avaliação, cumprindo o requisito obrigatório do desafio.
 - **FastMCP em vez de dependências pesadas de agentes:** Optei por estruturar as ferramentas sob o padrão Model Context Protocol (FastMCP). Isso mantém as ferramentas desacopladas do modelo, fáceis de testar unitariamente e prontas para integração externa.
 - **Arquitetura de Retrieval (RAG):**
   - **Chunking Semântico:** Em vez de usar divisores cegos por quantidade de caracteres (que cortam regras no meio), dividi o arquivo `políticas_da_loja.pdf` estritamente pelas suas **10 seções temáticas de negócio** estruturadas em `data/policies_sections.json`.
-  - **Embeddings & Vetorização:** Utilizei o modelo open-weights `BAAI/bge-small-en-v1.5` gerido via `FastEmbed`, com indexação vetorial em memória através de **FAISS**, recuperando as `top_k = 3` seções mais relevantes por consulta.
+  - **Embeddings & Vetorização:** Utilizei o modelo multilíngue `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` gerido via `FastEmbed`, que oferece suporte nativo ao português brasileiro (vetores de 384 dimensões), com indexação vetorial em memória através de **FAISS**, recuperando as `top_k = 3` seções mais relevantes por consulta.
   - **Fallback Determinístico Local:** Caso o ambiente execute sem conectividade para download de pesos, o recuperador aciona automaticamente uma busca determinística baseada em TF-IDF com char n-grams `[3, 4]` e expansão por dicionário de sinônimos musicais.
 - **Provedor e Escolha do Modelo de LLM:**
   - **Provedor (Groq):** Homologuei a solução prioritariamente na **Groq** por dois fatores decisivos:
@@ -121,11 +132,11 @@ Para guiar a implementação onde os dados de entrada eram ambíguos ou abertos 
     2. *Acessibilidade e Custo Zero:* A Groq disponibiliza um plano gratuito generoso sem exigir cartão de crédito internacional. Isso garante que qualquer avaliador da Artefact consiga clonar o repositório, gerar uma chave gratuita em segundos e rodar o projeto integralmente sem custos de infraestrutura.
   - **Modelo:** Padronizado no **`openai/gpt-oss-120b`**, modelo open-weights de alta capacidade de raciocínio da OpenAI hospedado na Groq (com janela de contexto de 131k tokens e suporte robusto para o português brasileiro).
 - **Estratégia de Prompting e Guardrails:**
-  - **System Prompt Estruturado:** Definido em `src/agent/prompts.py`, separando rigidamente a Persona (Téo), os Guardrails Comerciais Invioláveis e as Diretrizes de Formatação (proibição expressa de tabelas Markdown com pipes, privilegiando tópicos limpos e destaque de valores no PIX).
+  - **System Prompt Estruturado:** Definido em `src/agent/prompts.py`, separando rigidamente a Persona (Téo), os Guardrails Comerciais Estritos e as Diretrizes de Formatação (proibição expressa de tabelas Markdown com pipes, privilegiando tópicos limpos e destaque de valores no PIX).
   - **Augmented Context Injection:** As ferramentas retornam payloads estruturados que são injetados em blocos delimitados (`[Resultado da Tool]`) antes da geração final, forçando o modelo a ancorar toda afirmação numérica nos dados retornados pelas tools.
-  - **Defesa Ativa contra Prompt Injection:** O orquestrador detecta tentativas de burlar regras ("amigo do dono", "autorizado pelo gerente") e injeta um alerta prioritário de segurança no prompt instruindo o modelo a recusar o desconto falso e manter os valores oficiais.
+  - **Heurística contra Prompt Injection e Descontos Indevidos:** O orquestrador detecta tentativas de burlar regras ("amigo do dono", "autorizado pelo gerente") e injeta um alerta no prompt instruindo o modelo a recusar o desconto e manter os valores oficiais. Reconheço que se trata de uma proteção heurística em código voltada aos padrões mapeados; para produção aberta, a recomendação é integrar um classificador de segurança dedicado (como Llama Guard ou NeMo Guardrails).
 - **Cliente LLM com Retry e Backoff Exponencial:** Para contornar limites transitórios de taxa (HTTP 429) em APIs públicas, implementei um decorador com backoff exponencial com jitter que tenta até 3 vezes antes de acionar o sintetizador determinístico de resiliência.
-- **Higienização de RAG e Fallback de Contingência:** Caso ocorra instabilidade severa de rede externa com a API de LLM, o orquestrador aciona um sintetizador determinístico grounded. O mecanismo higieniza marcadores técnicos de chunks (`--- [...] ---`), entregando respostas formatadas e acolhedoras no tom da persona Téo sem expor metadados internos.
+- **Higienização de RAG e Fallback de Contingência:** Caso ocorra indisponibilidade temporária de rede externa com a API de LLM, o orquestrador aciona um sintetizador determinístico grounded. O mecanismo higieniza marcadores técnicos de chunks (`--- [...] ---`), entregando respostas formatadas e acolhedoras no tom da persona Téo sem expor metadados internos.
 
 ---
 
